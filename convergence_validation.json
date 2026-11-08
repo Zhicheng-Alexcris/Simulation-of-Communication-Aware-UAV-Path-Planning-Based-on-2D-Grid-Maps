@@ -1,0 +1,26 @@
+{
+  "base_config": "ca_diffusion_es/formal_experiment_ca_v9.json",
+  "drones": [0, 1, 2, 3, 4],
+  "seeds": [42, 142, 242],
+  "output_dir": "runs/convergence_validation_v1",
+  "configurations": [
+    {
+      "id": "v9_original",
+      "label": "Original v9",
+      "progress_rule": "compromise",
+      "replay_exploration_fraction": 0.5
+    },
+    {
+      "id": "hv_feedback",
+      "label": "HV feedback",
+      "progress_rule": "hypervolume",
+      "replay_exploration_fraction": 0.5
+    },
+    {
+      "id": "hv_replay_decay",
+      "label": "HV feedback + replay decay",
+      "progress_rule": "hypervolume",
+      "replay_exploration_fraction": 0.2
+    }
+  ]
+}
