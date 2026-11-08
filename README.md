@@ -1,164 +1,28 @@
-# 基于二维栅格地图的通信感知无人机路径规划仿真
+# UAV Corridor Planning Code
 
-**Simulation of Communication-Aware UAV Path Planning Based on 2D Grid Maps**
-
-本项目按本科毕业设计题目，从原论文代码中提取“建筑物二维投影、栅格地图、A* 寻路、通信损耗代价”四个部分，整理为单架无人机的二维路径规划程序。运行后生成路径图、指标图、通信损耗曲线和通信权重分析图，同时导出 CSV 数据。
-
-## 1. 如何运行
-
-环境要求：Windows，Python 3.10 或以上。核心程序只需要 `numpy` 和 `matplotlib`。
-
-推荐操作：
-
-1. 第一次使用，双击 **安装依赖.bat**。该脚本在本目录创建独立的 `.venv` 并安装依赖，需要联网。
-2. 双击 **运行仿真.bat**。
-3. 打开本目录的 **outputs** 文件夹查看图片和数据。
-
-如果已有合适的 Python 环境，可以在本目录打开终端运行：
+当前正式实验版本为 CA-Diffusion-ES v9，完整说明见 `README_CA_DIFFUSION_ES_V9.md`。
 
 ```powershell
-python -m pip install -r requirements.txt
-python main.py
+cd D:\desktop\code
+.\run_ca_diffusion_es_v9.ps1 test
+.\run_ca_diffusion_es_v9.ps1 all-check
+.\run_ca_diffusion_es_v9.ps1 formal-all
+.\run_ca_diffusion_es_v9.ps1 report
 ```
 
-在 PyCharm / VS Code 中也可以将本项目 `.venv` 选择为解释器，再直接运行 `main.py`。默认保存图像，不弹出图形窗口；需要弹窗时运行 `python main.py --show`。
-
-启动脚本会等待按键再关闭，方便查看运行提示。此副本交付时未执行仿真，`outputs` 中的实验结果需要由你运行后生成。
-
-## 2. 本科题目如何落实
-
-| 题目要求 | 代码实现 |
-| --- | --- |
-| 将复杂三维城市简化为二维栅格 | 建筑物取水平投影，地图大小为 220 m × 220 m，默认栅格边长 5 m |
-| 不可通行的障碍物栅格 | 保留原场景的 14 个建筑物水平边界，栅格与建筑内部有面积交集即禁止进入 |
-| 高通信损耗栅格 | 在配置文件中直接设置弱信号区域及其损耗值 |
-| 从起点到终点的经典 A* | 使用优先队列、累计代价、启发函数和父节点回溯 |
-| 避开障碍并减少弱信号区域穿越 | 在移动距离上加入非负通信惩罚；障碍物是硬约束，弱信号是软代价 |
-| 可运行并出图 | 主程序自动生成 PNG / PDF 图像及 CSV / JSON 数据 |
-
-单架无人机在一个固定二维地图中移动，允许四邻域或八邻域。八邻域模式禁止对角穿越建筑物角缝。每个节点为栅格中心，任意输入起终点会映射到所在栅格中心，实际中心坐标记录在 `summary.json` 中。地图的右边界、上边界不包含在可选坐标内。
-
-本科版采用人工指定的两级损耗地图：默认正常区域 85 dB，高损耗区域 120 dB，弱信号判定阈值 110 dB。这些是**教学仿真参数**，不是原论文的测量结果或射线追踪输出。你可以按教学需求修改，不需要训练模型、加载网络权重或处理论文的大规模数据。
-
-## 3. A* 的目标函数
-
-经典 A* 使用：
-
-```text
-f(n) = g(n) + h(n)
-```
-
-本项目把路径目标写为：
-
-```text
-J = L + lambda × C
-C = sum [边长 × (出发格通信代价 + 到达格通信代价) / 2]
-```
-
-- `L` 为二维路径总长度，单位 m。
-- `lambda` 为非负、无量纲通信权重。
-- 正常栅格通信代价为 0；高损耗栅格的代价按损耗差归一化到 `(0, 1]`。
-- 当所有高损耗区域均使用同一个损耗值时，`C` 就等于弱信号区域内的穿越长度。
-- 普通 A* 使用 `lambda = 0`，只优化路径长度；通信感知 A* 默认使用 `lambda = 8`。
-
-边代价是移动长度与非负通信代价之和。四邻域的启发函数为 Manhattan 距离，八邻域为 octile 距离，启发函数只计算无障碍情况下的最短移动距离，因此不会高估剩余总代价。程序优化的是上述加权目标，通信权重体现长度和信号之间的取舍；不声称任意有限权重都能保证全局最少弱信号栅格数。
-
-程序对比的两条路径使用相同地图、起终点、邻域和启发函数，只有通信权重不同。无可行路径时返回明确错误，不能用直线代替合法路线。路径未进行样条平滑，以保持栅格模型中的避障和代价定义一致。
-
-## 4. 配置地图和实验
-
-主要修改 `config.json`：
-
-| 字段 | 意义 |
-| --- | --- |
-| `bounds_m` | `[xmin, xmax, ymin, ymax]`，米制地图边界 |
-| `cell_size_m` | 栅格边长；地图宽高必须为它的整数倍 |
-| `obstacle_margin_m` | 建筑水平投影额外膨胀距离，默认 0 m |
-| `buildings_xy_m` | 建筑矩形列表，每项为 `[xmin, xmax, ymin, ymax]` |
-| `weak_signal_regions` | 高损耗矩形区域及其 `pathloss_db`；按栅格中心判定所属区域 |
-| `normal_pathloss_db` | 正常区域损耗，仅用于教学可视化 |
-| `weak_threshold_db` | 弱信号阈值，必须大于正常损耗 |
-| `start_m` / `goal_m` | 起点 / 终点米制坐标 |
-| `connectivity` | `4` 或 `8` |
-| `communication_weight` | 通信权重，默认 8 |
-| `sweep_weights` | 权重敏感性实验列表 |
-
-区域重叠时取较大的损耗；障碍物优先，建筑里的栅格不会因为有弱信号标记而变得可通行。
-
-命令行示例：
+重要参数对比实验见 `README_CA_DIFFUSION_ES_V9_PARAMETERS.md`。
 
 ```powershell
-# 调整通信权重
-python main.py --weight 4
-
-# 使用四邻域并保存到独立实验目录
-python main.py --connectivity 4 --output outputs_four_neighbors
-
-# 换成横向穿越城市的任务
-python main.py --start -107.5 2.5 --goal 107.5 2.5 --output outputs_crossing
-
-# 使用另一份配置
-python main.py --config my_config.json --output outputs_custom
-
-# 只做普通 A* 与通信感知 A* 对比，跳过权重分析
-python main.py --no-sweep
+.\run_ca_diffusion_es_v9_parameters.ps1 check
+.\run_ca_diffusion_es_v9_parameters.ps1 all
 ```
 
-命令行输入坐标单位为米，不是行列编号。地图默认按列 `(col)`、行 `(row)` 表示节点，数组则用 `[row, col]` 索引。CSV 地图第一行对应最下方一行，障碍地图编码为 `0=正常通行`、`1=弱信号通行`、`2=障碍物`。
+Radio Map paired ablation: `README_CA_DIFFUSION_ES_V9_RADIO_ABLATION.md`.
 
-运行会覆盖所选输出目录内的同名结果。比较不同配置时，建议使用不同的 `--output` 目录。
-
-## 5. 运行后的输出
-
-默认生成以下六张图，每张保存 PNG 和 PDF 两种格式。图内使用英文标签，避免中文字体缺失影响出图。
-
-| 文件前缀 | 图像内容 |
-| --- | --- |
-| `01_grid_map` | 二维城市栅格、障碍、弱信号、起终点 |
-| `02_path_comparison` | 普通 A* 与通信感知 A* 的并排路径图 |
-| `03_path_overlay` | 两条路径叠加图 |
-| `04_metrics_comparison` | 路径长度、弱信号穿越长度、占比及进入栅格数 |
-| `05_pathloss_profile` | 各条路径沿程的教学损耗曲线 |
-| `06_weight_sensitivity` | 通信权重变化时的路径长度和弱信号穿越长度 |
-
-主要数据文件：
-
-- `metrics.csv`：两种算法的统计结果。
-- `path_distance_only.csv`、`path_communication_aware.csv`：逐节点路线和通信损耗。
-- `weight_sensitivity.csv`：通信权重分析的数据，使用 `--no-sweep` 时不生成。
-- `grid_map.csv`、`pathloss_map_db.csv`：二维栅格分类图与损耗地图。
-- `grid_data.npz`：完整地图数组和 A* 实际展开节点掩码。
-- `used_config.json`、`summary.json`：本次运行配置和起终点映射说明。
-
-统计口径：弱信号进入栅格数按路径中除起点以外的弱信号节点计数；弱信号长度按边的两端各分配一半长度计算；弱信号占比 = 弱信号长度 / 总路径长度。搜索时间仅计 A* 搜索过程，不包括地图构建、统计和绘图，不适合用单次运行时间作严谨性能结论。
-
-## 6. 文件结构与原论文关系
-
-```text
-毕业设计/
-  main.py                 仿真、对比、数据导出入口
-  environment.py          二维建筑投影和损耗栅格
-  path_planner.py          经典 A* 搜索
-  metrics.py              统一的路线指标
-  plot.py                 绘图
-  config.json             默认城市地图和实验参数
-  requirements.txt        本科版依赖
-  安装依赖.bat             首次安装入口
-  运行仿真.bat             运行入口
-  README.md               使用和模型说明
-  改编说明.md              与原项目的对应关系
-  original_code/          原论文源码与数据的备份，供教师对照
-  outputs/                运行后生成的结果
+```powershell
+.\run_ca_diffusion_es_v9_radio_ablation.ps1 check
+.\run_ca_diffusion_es_v9_radio_ablation.ps1 smoke
+.\run_ca_diffusion_es_v9_radio_ablation.ps1 smoke-report
+.\run_ca_diffusion_es_v9_radio_ablation.ps1 run
+.\run_ca_diffusion_es_v9_radio_ablation.ps1 report
 ```
-
-`original_code` 保存原项目的源码、文档、配置和数据，文件内容保持原样。复制时排除原项目的 `.venv`、`__pycache__`、`.git`、`runs`、`figs`、`artifacts` 目录，避免把机器相关环境和旧实验结果混入本科版。备份中保留的其他旧图或缓存不属于本科版运行结果。本科版不导入 `original_code`，原论文所在目录与 `D:\desktop\code` 均未改动。
-
-## 7. 适合本科毕业设计的实验建议
-
-1. **基础避障验证**：观察路线是否进入障碍，解释四邻域与八邻域差异。
-2. **通信感知对比**：在相同地图上对比 `lambda=0` 和 `lambda>0`，分析长度与弱信号穿越量的取舍。
-3. **通信权重分析**：使用默认敏感性实验，讨论权重增加后绕行的变化。
-4. **分辨率分析**：将栅格边长改为 2、5、10 m，比较路径与展开节点数；保守栅格化可能导致粗地图中的窄通道消失。
-5. **不同起终点与弱信号区域**：分别调整起终点、弱信号位置或面积，验证算法在不同场景下的表现。
-
-实验结论请以实际运行数据为准。根据地图设置不同，两种路线也可能重合，弱信号区域也可能成为无法绕开的通道。
